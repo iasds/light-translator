@@ -5,8 +5,9 @@
 
 import os
 import sys
-import wget
+import requests
 from pathlib import Path
+from tqdm import tqdm
 
 # 模型配置
 MODELS = {
@@ -51,10 +52,24 @@ def download_model(model_key="1.25bit", output_dir="models"):
     print()
     
     try:
-        # 使用 wget 下载，显示进度
-        wget.download(model_info["url"], output_path)
-        print()
-        print(f"下载完成: {output_path}")
+        # 使用 requests 下载，显示进度
+        response = requests.get(model_info["url"], stream=True)
+        response.raise_for_status()
+        
+        total_size = int(response.headers.get('content-length', 0))
+        
+        with open(output_path, 'wb') as f, tqdm(
+            desc=model_info["filename"],
+            total=total_size,
+            unit='B',
+            unit_scale=True,
+            unit_divisor=1024,
+        ) as bar:
+            for chunk in response.iter_content(chunk_size=8192):
+                size = f.write(chunk)
+                bar.update(size)
+        
+        print(f"\n下载完成: {output_path}")
         return True
     except Exception as e:
         print(f"\n下载失败: {e}")
