@@ -12,14 +12,14 @@ from tqdm import tqdm
 # 模型配置
 MODELS = {
     "1.25bit": {
-        "url": "https://huggingface.co/AngelSlim/Hy-MT1.5-1.8B-1.25bit-GGUF/resolve/main/Hy-MT1.5-1.8B-1.25bit-Q4_K_M.gguf",
-        "filename": "Hy-MT1.5-1.8B-1.25bit-Q4_K_M.gguf",
+        "url": "https://huggingface.co/AngelSlim/Hy-MT1.5-1.8B-1.25bit-GGUF/resolve/main/Hy-MT1.5-1.8B-1.25bit.gguf",
+        "filename": "Hy-MT1.5-1.8B-1.25bit.gguf",
         "size": "约 440MB",
         "description": "1.25bit 极度量化版本，内存占用最小"
     },
     "2bit": {
-        "url": "https://huggingface.co/AngelSlim/Hy-MT1.5-1.8B-2bit-GGUF/resolve/main/Hy-MT1.5-1.8B-2bit-Q4_K_M.gguf",
-        "filename": "Hy-MT1.5-1.8B-2bit-Q4_K_M.gguf",
+        "url": "https://huggingface.co/AngelSlim/Hy-MT1.5-1.8B-2bit-GGUF/resolve/main/Hy-MT1.5-1.8B-2bit.gguf",
+        "filename": "Hy-MT1.5-1.8B-2bit.gguf",
         "size": "约 574MB",
         "description": "2bit 量化版本，质量更好"
     }
@@ -52,12 +52,25 @@ def download_model(model_key="1.25bit", output_dir="models"):
     print()
     
     try:
-        # 使用 requests 下载，显示进度
-        response = requests.get(model_info["url"], stream=True)
-        response.raise_for_status()
-        
+        # 先尝试 HF 直连，失败后自动切镜像
+        urls = [
+            model_info["url"],
+            model_info["url"].replace("huggingface.co", "hf-mirror.com"),
+        ]
+        response = None
+        for url in urls:
+            try:
+                response = requests.get(url, stream=True, timeout=30)
+                response.raise_for_status()
+                break
+            except Exception:
+                continue
+
+        if response is None:
+            raise RuntimeError("所有下载源均失败")
+
         total_size = int(response.headers.get('content-length', 0))
-        
+
         with open(output_path, 'wb') as f, tqdm(
             desc=model_info["filename"],
             total=total_size,
@@ -68,7 +81,7 @@ def download_model(model_key="1.25bit", output_dir="models"):
             for chunk in response.iter_content(chunk_size=8192):
                 size = f.write(chunk)
                 bar.update(size)
-        
+
         print(f"\n下载完成: {output_path}")
         return True
     except Exception as e:
