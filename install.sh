@@ -129,16 +129,29 @@ download_model() {
 
     info "下载模型文件（约 1.1GB，Q4_K_M 量化）..."
     info "首次翻译需 ~45s 加载模型，后续从缓存加载约 4s"
-    info "尝试从 HuggingFace 下载..."
 
-    if curl -L --progress-bar -o "$model_path" "$hf_url" 2>&1; then
-        info "模型下载完成（HuggingFace）"
+    # 尝试从镜像下载（hf-mirror.com 直接返回文件内容，不走 LFS）
+    info "从 hf-mirror.com 下载..."
+    if curl -L --progress-bar -o "$model_path" "$mirror_url" 2>&1; then
+        # 校验文件大小（至少 500MB才算真模型）
+        local file_size=$(stat -c%s "$model_path" 2>/dev/null || echo 0)
+        if [ "$file_size" -lt 500000000 ]; then
+            warn "下载文件异常（${file_size} 字节），可能是 LFS 指针"
+            rm -f "$model_path"
+            info "尝试 HuggingFace 直链..."
+            if curl -L --progress-bar -o "$model_path" "$hf_url" 2>&1; then
+                file_size=$(stat -c%s "$model_path" 2>/dev/null || echo 0)
+                if [ "$file_size" -lt 500000000 ]; then
+                    rm -f "$model_path"
+                    error "模型下载失败：文件大小异常（${file_size} 字节）。请手动下载：${mirror_url}"
+                fi
+            else
+                error "模型下载失败，请检查网络或手动下载：${mirror_url}"
+            fi
+        fi
+        info "模型下载完成（${file_size} 字节）"
     else
-        warn "HuggingFace 下载失败，尝试镜像..."
-        curl -L --progress-bar -o "$model_path" "$mirror_url" || {
-            error "模型下载失败，请检查网络连接"
-        }
-        info "模型下载完成（镜像）"
+        error "模型下载失败，请检查网络连接"
     fi
 }
 
