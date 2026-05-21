@@ -1,12 +1,12 @@
 # Qubes Translation Qube
 
-基于腾讯混元 HY-MT1.5 翻译模型的 Qubes OS 离线翻译 qube。**一行命令安装，Ctrl+C 复制即翻译**。
+基于腾讯混元 HY-MT1.5 翻译模型的 Qubes OS 离线翻译 qube。**一行命令安装，Web UI 粘贴即翻译**。
 
 ## 功能
 
 - **离线翻译**：无需网络，数据不出设备
 - **33 种语言**：中英互译优化，支持 1056 个翻译方向
-- **剪贴板自动检测**：复制文本自动翻译，结果显示在终端
+- **Web 界面**：极简暗色 UI，粘贴文本→选语言→翻
 - **交互模式**：终端直接输入，即时翻译
 - **低资源**：500MB 内存 + 1.5GB 存储即可运行
 
@@ -50,6 +50,9 @@ chmod +x install.sh
 
 # 单次翻译
 ./translate.sh --text "Hello world"
+
+# Web 界面（在浏览器访问 http://翻译qube的IP:8080）
+./webui.sh
 ```
 
 ## 使用演示
@@ -66,18 +69,8 @@ chmod +x install.sh
 The weather is really nice today.
 ```
 
-**剪贴板监控：**
-```
-开始监控剪贴板...
-复制文本后将自动翻译
-按 Ctrl+C 退出
-
-原文: Hello world
-译文: 你好，世界。
-
-原文: 今天天气真好
-译文: The weather is really nice today.
-```
+**Web 界面：**
+打开浏览器访问翻译 qube 的 IP:8080，粘贴文本、选语言、点翻译。
 
 **语言切换：**
 ```
@@ -134,9 +127,7 @@ The weather is really nice today.
 
 **模型加载失败**：`ls models/` 检查模型文件，运行 `./install.sh --download-model` 重新下载。
 
-**依赖缺失**：`sudo apt install xclip`。
-
-**剪贴板无响应**：确认在翻译 qube 的终端中运行，且有 DISPLAY 环境变量。
+**依赖缺失**：`sudo apt install python3`。
 
 ## 致谢
 

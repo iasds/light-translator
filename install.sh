@@ -424,7 +424,7 @@ show_summary() {
     echo "使用方法："
     echo "  ./translate.sh                      - 交互模式"
     echo "  ./translate.sh --text '你好'        - 单次翻译"
-    echo "  ./translate.sh --clipboard          - 剪贴板监控"
+    echo "  ./webui.sh                          - Web 界面 (http://IP:8080)"
     echo "  ./install.sh --download-model       - 下载模型"
     echo ""
     echo "配置文件: config.json"
@@ -471,6 +471,13 @@ cd "$(dirname "$0")"
 exec python3 translate.py "$@"
 SHEOF
     chmod +x "$SCRIPT_DIR/translate.sh"
+
+    cat > "$SCRIPT_DIR/webui.sh" << 'SHEOF'
+#!/bin/bash
+cd "$(dirname "$0")"
+exec python3 webui.py
+SHEOF
+    chmod +x "$SCRIPT_DIR/webui.sh"
 
     if [ "$download_model_flag" = true ]; then
         download_model
