@@ -129,8 +129,7 @@ def main():
 
     Handler.service = service
     print(f"Web UI 已启动: http://localhost:{PORT}")
-    print("在其他 VM 的浏览器访问 translation qube 的 IP")
-    httpd = http.server.HTTPServer(('0.0.0.0', PORT), Handler)
+    httpd = http.server.HTTPServer(('127.0.0.1', PORT), Handler)
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:
