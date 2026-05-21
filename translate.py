@@ -217,6 +217,11 @@ class TranslationService:
                     result_lines.insert(0, stripped)
             translation = '\n'.join(result_lines)
 
+            # 剥离模型回显的原文（HY-MT1.5 惯用 原文\n\n译文 格式）
+            src_text = text.strip()
+            if translation.startswith(src_text):
+                translation = translation[len(src_text):].strip()
+
             # 清理停止标记
             for stop in STOP_TOKENS:
                 translation = translation.replace(stop, "")
