@@ -37,7 +37,7 @@ button:disabled{opacity:.4;cursor:not-allowed}
 </head>
 <body>
 <main>
-<h1>Qubes 翻译</h1>
+<h1>轻量翻译</h1>
 <div class="row">
   <select id="src"></select>
   <span style="color:#8b949e;align-self:center;font-size:18px">→</span>
