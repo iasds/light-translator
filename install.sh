@@ -100,16 +100,15 @@ build_llama_cpp() {
 
 # ── 安装 Python 依赖 ──────────────────────────────
 install_python_deps() {
-    info "安装 Python 依赖..."
+    info "检查 Python 依赖..."
 
-    cat > "$SCRIPT_DIR/requirements.txt" << 'EOF'
-requests>=2.28.0
-tqdm>=4.64.0
-EOF
+    # translate.py 只使用 Python 标准库，无需 pip 安装
+    # 如需 requests（模型下载备用），通过 apt 安装
+    if ! python3 -c "import requests" 2>/dev/null; then
+        sudo apt-get install -y -qq python3-requests 2>/dev/null || true
+    fi
 
-    pip install -r "$SCRIPT_DIR/requirements.txt" -q --resume-retries 5
-
-    info "Python 依赖安装完成"
+    info "Python 依赖就绪"
 }
 
 # ── 下载模型 ───────────────────────────────────────
