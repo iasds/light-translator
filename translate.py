@@ -15,18 +15,18 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # 默认配置
 DEFAULT_CONFIG = {
-    "model_path": "models/Hy-MT1.5-1.8B-1.25bit.gguf",
+    "model_path": "models/Hy-MT1.5-1.8B-Q4_K_M.gguf",
     "llama_cli_path": "./llama-cli",
     "default_source_lang": "auto",
     "default_target_lang": "English",
     "clipboard_poll_interval": 0.5,
-    "max_tokens": 512,
-    "temperature": 0.7,
-    "top_k": 20,
-    "top_p": 0.6,
+    "max_tokens": 256,
+    "temperature": 0.1,
+    "top_k": 5,
+    "top_p": 0.4,
     "repetition_penalty": 1.05,
-    "n_threads": 4,
-    "n_ctx": 2048,
+    "n_threads": 2,
+    "n_ctx": 512,
 }
 
 # 支持的语言
