@@ -46,6 +46,23 @@ LANGUAGES = {
     "zh-Hant": "Traditional Chinese",
 }
 
+# 中文语言名（用于中文 prompt 模板）
+LANG_NAMES_ZH = {
+    "Chinese": "中文", "English": "英文", "French": "法文",
+    "Japanese": "日文", "Korean": "韩文", "German": "德文",
+    "Spanish": "西班牙文", "Russian": "俄文", "Arabic": "阿拉伯文",
+    "Portuguese": "葡萄牙文", "Italian": "意大利文", "Thai": "泰文",
+    "Vietnamese": "越南文", "Indonesian": "印尼文", "Malay": "马来文",
+    "Filipino": "菲律宾文", "Hindi": "印地文", "Polish": "波兰文",
+    "Czech": "捷克文", "Dutch": "荷兰文", "Khmer": "高棉文",
+    "Burmese": "缅甸文", "Persian": "波斯文", "Gujarati": "古吉拉特文",
+    "Urdu": "乌尔都文", "Telugu": "泰卢固文", "Marathi": "马拉地文",
+    "Hebrew": "希伯来文", "Bengali": "孟加拉文", "Tamil": "泰米尔文",
+    "Ukrainian": "乌克兰文", "Tibetan": "藏文", "Kazakh": "哈萨克文",
+    "Mongolian": "蒙古文", "Uyghur": "维吾尔文", "Cantonese": "广东话",
+    "Traditional Chinese": "繁体中文",
+}
+
 # 模型停止标记
 STOP_TOKENS = ["<｜hy_end▁of▁sentence｜>", "<｜hy_EOT｜>"]
 
@@ -123,7 +140,9 @@ class TranslationService:
         if is_chinese_source:
             if target_lang_name == "Chinese":
                 target_lang_name = "English"
-            prompt = f"将以下文本翻译为{target_lang_name}，注意只需要输出翻译后的结果，不要额外解释：\n\n{text}"
+            # 中文 prompt 里用中文语言名（"英文" 而非 "English"）
+            target_name_zh = LANG_NAMES_ZH.get(target_lang_name, target_lang_name)
+            prompt = f"将以下文本翻译为{target_name_zh}，注意只需要输出翻译后的结果，不要额外解释：\n\n{text}"
         else:
             if target_lang_name == "Chinese":
                 prompt = f"将以下文本翻译为中文，注意只需要输出翻译后的结果，不要额外解释：\n\n{text}"
