@@ -68,9 +68,9 @@ async function doTranslate(){
     });
     if(!r.ok)throw new Error(r.status);
     const d=await r.json();
-    sel('output').value=d.translation||'';
-    st.textContent=d.time?`${(d.time/1000).toFixed(1)}s`:'完成';
-  }catch(e){st.textContent='错误: '+e.message}
+    if(d.error){st.textContent='错误: '+d.error;sel('output').value='';}
+    else{sel('output').value=d.translation||'';st.textContent=d.time?`${(d.time/1000).toFixed(1)}s`:'完成';}
+  }catch(e){console.error(e);st.textContent='错误: '+e.message}
   btn.disabled=false;
 }
 sel('input').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.ctrlKey)doTranslate()});
@@ -103,19 +103,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(html.encode())
 
     def _handle_translate(self):
-        length = int(self.headers.get('Content-Length', 0))
-        body = json.loads(self.rfile.read(length))
-        text = body.get('text', '')
-        src = body.get('source', 'auto')
-        tgt = body.get('target', 'en')
-        import time
-        t0 = time.time()
-        result = self.service.translate(text, src, tgt)
-        elapsed = int((time.time() - t0) * 1000)
-        self.send_response(200)
+        try:
+            length = int(self.headers.get('Content-Length', 0))
+            body = json.loads(self.rfile.read(length))
+            text = body.get('text', '')
+            src = body.get('source', 'auto')
+            tgt = body.get('target', 'en')
+            import time
+            t0 = time.time()
+            result = self.service.translate(text, src, tgt)
+            elapsed = int((time.time() - t0) * 1000)
+            self._json_reply({'translation': result, 'time': elapsed})
+        except Exception as e:
+            self._json_reply({'translation': '', 'error': str(e)}, 500)
+
+    def _json_reply(self, data, status=200):
+        self.send_response(status)
         self.send_header('Content-Type', 'application/json; charset=utf-8')
         self.end_headers()
-        self.wfile.write(json.dumps({'translation': result, 'time': elapsed}, ensure_ascii=False).encode())
+        self.wfile.write(json.dumps(data, ensure_ascii=False).encode())
 
     def log_message(self, format, *args):
         pass  # 静默 HTTP 日志
