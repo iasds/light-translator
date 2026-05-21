@@ -119,40 +119,68 @@ download_model() {
 
     local model_file="Hy-MT1.5-1.8B-Q4_K_M.gguf"
     local model_path="$SCRIPT_DIR/models/$model_file"
-    local hf_url="https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF/resolve/main/$model_file"
-    local mirror_url="https://hf-mirror.com/tencent/HY-MT1.5-1.8B-GGUF/resolve/main/$model_file"
 
     if [ -f "$model_path" ]; then
-        warn "模型文件已存在，跳过下载"
-        return 0
+        local file_size=$(stat -c%s "$model_path" 2>/dev/null || echo 0)
+        if [ "$file_size" -gt 500000000 ]; then
+            warn "模型文件已存在（${file_size} 字节），跳过下载"
+            return 0
+        fi
+        warn "已存在的模型文件异常（${file_size} 字节），重新下载"
+        rm -f "$model_path"
     fi
 
     info "下载模型文件（约 1.1GB，Q4_K_M 量化）..."
     info "首次翻译需 ~45s 加载模型，后续从缓存加载约 4s"
 
-    # 尝试从镜像下载（hf-mirror.com 直接返回文件内容，不走 LFS）
-    info "从 hf-mirror.com 下载..."
-    if curl -L --progress-bar -o "$model_path" "$mirror_url" 2>&1; then
-        # 校验文件大小（至少 500MB才算真模型）
-        local file_size=$(stat -c%s "$model_path" 2>/dev/null || echo 0)
-        if [ "$file_size" -lt 500000000 ]; then
-            warn "下载文件异常（${file_size} 字节），可能是 LFS 指针"
-            rm -f "$model_path"
-            info "尝试 HuggingFace 直链..."
-            if curl -L --progress-bar -o "$model_path" "$hf_url" 2>&1; then
-                file_size=$(stat -c%s "$model_path" 2>/dev/null || echo 0)
-                if [ "$file_size" -lt 500000000 ]; then
-                    rm -f "$model_path"
-                    error "模型下载失败：文件大小异常（${file_size} 字节）。请手动下载：${mirror_url}"
-                fi
-            else
-                error "模型下载失败，请检查网络或手动下载：${mirror_url}"
-            fi
-        fi
-        info "模型下载完成（${file_size} 字节）"
-    else
-        error "模型下载失败，请检查网络连接"
+    # 安装 git-lfs（HF 使用 Git LFS 存储大文件，直接 curl 只能拿到指针）
+    if ! command -v git-lfs &> /dev/null; then
+        info "安装 git-lfs..."
+        sudo apt-get install -y -qq git-lfs > /dev/null 2>&1 || true
+        git lfs install --skip-repo 2>/dev/null || true
     fi
+
+    # 用 git clone 单个文件（sparse checkout + LFS）
+    local tmp_dir=$(mktemp -d)
+    cd "$tmp_dir"
+    info "从 HuggingFace 拉取模型..."
+
+    git init -q
+    git remote add origin https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF
+    git config core.sparseCheckout true
+    echo "$model_file" > .git/info/sparse-checkout
+    git lfs pull origin main --include="$model_file" 2>/dev/null || {
+        # 回退：直接用 git lfs 拉取（不 sparse checkout）
+        GIT_LFS_SKIP_SMUDGE=1 git pull origin main --depth 1 2>/dev/null
+        git lfs pull --include="$model_file" 2>/dev/null
+    }
+
+    if [ -f "$model_file" ]; then
+        local fs=$(stat -c%s "$model_file" 2>/dev/null || echo 0)
+        if [ "$fs" -gt 500000000 ]; then
+            mv "$model_file" "$model_path"
+            cd "$SCRIPT_DIR"
+            rm -rf "$tmp_dir"
+            info "模型下载完成（${fs} 字节）"
+            return 0
+        fi
+    fi
+
+    cd "$SCRIPT_DIR"
+    rm -rf "$tmp_dir"
+
+    # 最终回退：尝试 wget 镜像
+    warn "git-lfs 下载失败，尝试直接下载..."
+    if curl -L --connect-timeout 30 --max-time 600 -o "$model_path" \
+        "https://hf-mirror.com/tencent/HY-MT1.5-1.8B-GGUF/resolve/main/HY-MT1.5-1.8B-Q4_K_M.gguf" 2>&1; then
+        local fs=$(stat -c%s "$model_path" 2>/dev/null || echo 0)
+        if [ "$fs" -gt 500000000 ]; then
+            info "模型下载完成（${fs} 字节）"
+            return 0
+        fi
+    fi
+
+    error "模型下载失败。请手动从以下地址下载模型文件（约 1.1GB）放到 $SCRIPT_DIR/models/ ：\n  https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF\n  或使用 huggingface-cli: pip install huggingface_hub && huggingface-cli download tencent/HY-MT1.5-1.8B-GGUF Hy-MT1.5-1.8B-Q4_K_M.gguf --local-dir models/"
 }
 
 # ── 创建翻译脚本 ───────────────────────────────────
