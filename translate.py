@@ -19,7 +19,6 @@ DEFAULT_CONFIG = {
     "llama_cli_path": "./llama-cli",
     "default_source_lang": "auto",
     "default_target_lang": "English",
-    "clipboard_poll_interval": 0.5,
     "max_tokens": 256,
     "temperature": 0.1,
     "top_k": 5,
@@ -72,7 +71,6 @@ class TranslationService:
         self.config = self.load_config(config_path)
         self.source_lang = self.config["default_source_lang"]
         self.target_lang = self.config["default_target_lang"]
-        self.last_clipboard = ""
         self.llama_ready = False
 
     def load_config(self, config_path):
@@ -190,20 +188,29 @@ class TranslationService:
             translation = result.stdout.strip()
 
             # 提取实际的翻译文本（跳过 llama-cli banner 和 prompt 回显）
+            # llama-cli 输出格式（从后往前）：
+            #   [ Prompt: ...] / Exiting... (跳过)
+            #   译文行
+            #   (空行)
+            #   原文行
+            #   > prompt回显 (遇此停止，前面是原文)
             lines = translation.split('\n')
             result_lines = []
             for line in reversed(lines):
                 stripped = line.strip()
-                # 跳过统计行（但不 break，继续往前找译文）
                 if stripped.startswith('[ Prompt:') or stripped.startswith('[ ') or stripped.startswith('Prompt:'):
                     continue
                 if stripped.startswith('Exiting') or stripped.startswith('build ') or stripped.startswith('model '):
                     continue
                 if stripped.startswith('modalities') or stripped.startswith('available') or stripped.startswith('Loading'):
                     continue
-                if stripped.startswith('> ') or stripped.startswith('/'):
+                # 遇到 prompt 回显 — 移除紧邻的原文行，然后停止
+                if stripped.startswith('> '):
+                    if result_lines:
+                        result_lines.pop(0)  # 译文之后的第一行是原文，不是译文
+                    break
+                if stripped.startswith('/'):
                     continue
-                # 跳过纯装饰行（banner 方框线、进度条等）
                 if stripped and not any(c.isalnum() for c in stripped):
                     continue
                 if stripped:
@@ -220,36 +227,6 @@ class TranslationService:
             return "翻译超时"
         except Exception as e:
             return f"翻译错误: {e}"
-
-    def get_clipboard(self):
-        """获取剪贴板内容"""
-        try:
-            result = subprocess.run(
-                ['xclip', '-selection', 'clipboard', '-o'],
-                capture_output=True, text=True, timeout=1
-            )
-            return result.stdout
-        except:
-            return ""
-
-    def monitor_clipboard(self):
-        """监控剪贴板变化"""
-        print("开始监控剪贴板...")
-        print("复制文本后将自动翻译")
-        print("按 Ctrl+C 退出")
-
-        while True:
-            try:
-                current = self.get_clipboard()
-                if current and current != self.last_clipboard:
-                    self.last_clipboard = current
-                    print(f"\n原文: {current}")
-                    translation = self.translate(current)
-                    print(f"译文: {translation}")
-                time.sleep(self.config["clipboard_poll_interval"])
-            except KeyboardInterrupt:
-                print("\n停止监控")
-                break
 
     def interactive_mode(self):
         """交互模式"""
@@ -286,7 +263,6 @@ class TranslationService:
             print("\n可用命令:")
             print("  /lang <src> <tgt>  - 设置语言方向 (如 /lang zh en)")
             print("  /languages         - 显示支持的语言")
-            print("  /clipboard         - 开始剪贴板监控")
             print("  /config            - 显示当前配置")
             print("  /help              - 显示帮助")
             print("  /quit              - 退出\n")
@@ -309,9 +285,6 @@ class TranslationService:
             else:
                 print("用法: /lang <源语言代码> <目标语言代码>")
 
-        elif cmd[0] == '/clipboard':
-            self.monitor_clipboard()
-
         elif cmd[0] == '/config':
             print("\n当前配置:")
             for key, value in self.config.items():
@@ -328,8 +301,6 @@ def main():
     import argparse
 
     parser = argparse.ArgumentParser(description='Qubes Translation Qube')
-    parser.add_argument('--clipboard', '-c', action='store_true',
-                        help='启动剪贴板监控模式')
     parser.add_argument('--config', default='config.json',
                         help='配置文件路径')
     parser.add_argument('--source-lang', '-s', default=None,
@@ -354,10 +325,6 @@ def main():
     if args.text:
         translation = service.translate(args.text)
         print(translation)
-        return
-
-    if args.clipboard:
-        service.monitor_clipboard()
         return
 
     service.interactive_mode()
