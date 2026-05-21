@@ -118,17 +118,18 @@ download_model() {
 
     mkdir -p "$SCRIPT_DIR/models"
 
-    local model_file="Hy-MT1.5-1.8B-1.25bit.gguf"
+    local model_file="Hy-MT1.5-1.8B-Q4_K_M.gguf"
     local model_path="$SCRIPT_DIR/models/$model_file"
-    local hf_url="https://huggingface.co/AngelSlim/Hy-MT1.5-1.8B-1.25bit-GGUF/resolve/main/$model_file"
-    local mirror_url="https://hf-mirror.com/AngelSlim/Hy-MT1.5-1.8B-1.25bit-GGUF/resolve/main/$model_file"
+    local hf_url="https://huggingface.co/tencent/HY-MT1.5-1.8B-GGUF/resolve/main/$model_file"
+    local mirror_url="https://hf-mirror.com/tencent/HY-MT1.5-1.8B-GGUF/resolve/main/$model_file"
 
     if [ -f "$model_path" ]; then
         warn "模型文件已存在，跳过下载"
         return 0
     fi
 
-    info "下载模型文件（约 440MB）..."
+    info "下载模型文件（约 1.1GB，Q4_K_M 量化）..."
+    info "首次翻译需 ~45s 加载模型，后续从缓存加载约 4s"
     info "尝试从 HuggingFace 下载..."
 
     if curl -L --progress-bar -o "$model_path" "$hf_url" 2>&1; then
@@ -146,58 +147,45 @@ download_model() {
 create_translate_script() {
     info "创建翻译脚本..."
 
-    cat > "$SCRIPT_DIR/translate.py" << 'PYEOF'
+    local translate_py="$SCRIPT_DIR/translate.py"
+
+    # 如果本地仓库已有 translate.py，直接复制；否则从 GitHub 下载
+    local source_py="$(dirname "$0")/translate.py"
+    if [ -f "$source_py" ] && [ "$source_py" != "$translate_py" ]; then
+        cp "$source_py" "$translate_py"
+    else
+        info "从 GitHub 下载 translate.py..."
+        curl -sSL "https://raw.githubusercontent.com/iasds/qubes-translation-qube/main/translate.py" -o "$translate_py" || {
+            warn "下载失败，使用内置版本"
+            generate_translate_py > "$translate_py"
+        }
+    fi
+
+    chmod +x "$translate_py"
+    info "翻译脚本就绪"
+}
+
+# ── 备用：生成内置 translate.py ────────────────────
+generate_translate_py() {
+    cat << 'PYEOF'
 #!/usr/bin/env python3
 """
 Qubes Translation Qube - 翻译服务
 基于腾讯混元 HY-MT1.5 翻译模型，使用 llama-cli 推理
 """
-
-import os
-import sys
-import json
-import time
-import subprocess
-from pathlib import Path
+import os, sys, json, time, subprocess
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-
-# 默认配置
 DEFAULT_CONFIG = {
-    "model_path": "models/Hy-MT1.5-1.8B-1.25bit.gguf",
+    "model_path": "models/Hy-MT1.5-1.8B-Q4_K_M.gguf",
     "llama_cli_path": "./llama-cli",
-    "default_source_lang": "auto",
-    "default_target_lang": "English",
-    "clipboard_poll_interval": 0.5,
-    "max_tokens": 512,
-    "temperature": 0.7,
-    "top_k": 20,
-    "top_p": 0.6,
-    "repetition_penalty": 1.05,
-    "n_threads": 4,
-    "n_ctx": 2048,
+    "default_source_lang": "auto", "default_target_lang": "English",
+    "clipboard_poll_interval": 0.5, "max_tokens": 256,
+    "temperature": 0.7, "top_k": 20, "top_p": 0.6,
+    "repetition_penalty": 1.05, "n_threads": 2, "n_ctx": 512,
 }
-
-# 支持的语言
-LANGUAGES = {
-    "zh": "Chinese", "en": "English", "fr": "French",
-    "ja": "Japanese", "ko": "Korean", "de": "German",
-    "es": "Spanish", "ru": "Russian", "ar": "Arabic",
-    "pt": "Portuguese", "it": "Italian", "th": "Thai",
-    "vi": "Vietnamese", "id": "Indonesian", "ms": "Malay",
-    "tl": "Filipino", "hi": "Hindi", "pl": "Polish",
-    "cs": "Czech", "nl": "Dutch", "km": "Khmer",
-    "my": "Burmese", "fa": "Persian", "gu": "Gujarati",
-    "ur": "Urdu", "te": "Telugu", "mr": "Marathi",
-    "he": "Hebrew", "bn": "Bengali", "ta": "Tamil",
-    "uk": "Ukrainian", "bo": "Tibetan", "kk": "Kazakh",
-    "mn": "Mongolian", "ug": "Uyghur", "yue": "Cantonese",
-    "zh-Hant": "Traditional Chinese",
-}
-
-# 模型停止标记
-STOP_TOKENS = ["<｜hy_end▁of▁sentence｜>", "<｜hy_EOT｜>"]
-
+LANGUAGES = {"zh":"Chinese","en":"English","fr":"French","ja":"Japanese","ko":"Korean","de":"German","es":"Spanish","ru":"Russian","ar":"Arabic","pt":"Portuguese","it":"Italian","th":"Thai","vi":"Vietnamese","id":"Indonesian","ms":"Malay","tl":"Filipino","hi":"Hindi","pl":"Polish","cs":"Czech","nl":"Dutch","km":"Khmer","my":"Burmese","fa":"Persian","gu":"Gujarati","ur":"Urdu","te":"Telugu","mr":"Marathi","he":"Hebrew","bn":"Bengali","ta":"Tamil","uk":"Ukrainian","bo":"Tibetan","kk":"Kazakh","mn":"Mongolian","ug":"Uyghur","yue":"Cantonese","zh-Hant":"Traditional Chinese"}
+STOP_TOKENS = ["<｜hy_end▁of▁sentence｜>","<｜hy_EOT｜>"]
 
 class TranslationService:
     def __init__(self, config_path="config.json"):
@@ -206,275 +194,141 @@ class TranslationService:
         self.target_lang = self.config["default_target_lang"]
         self.last_clipboard = ""
         self.llama_ready = False
-
     def load_config(self, config_path):
         config = DEFAULT_CONFIG.copy()
         cfg = os.path.join(SCRIPT_DIR, config_path)
         if os.path.exists(cfg):
             with open(cfg, 'r', encoding='utf-8') as f:
-                user_config = json.load(f)
-                config.update(user_config)
+                config.update(json.load(f))
         return config
-
     def resolve_path(self, path):
-        """解析相对于项目目录的路径"""
-        if os.path.isabs(path):
-            return path
+        if os.path.isabs(path): return path
         return os.path.join(SCRIPT_DIR, path)
-
     def load_model(self):
-        """验证 llama-cli 和模型文件可用"""
         llama_cli = self.resolve_path(self.config["llama_cli_path"])
         model_path = self.resolve_path(self.config["model_path"])
-
         if not os.path.exists(model_path):
             print(f"错误: 模型文件不存在: {model_path}")
             print("请运行 ./install.sh --download-model 下载模型")
             return False
-
         if not os.path.exists(llama_cli):
-            # 尝试在 PATH 中查找
-            result = subprocess.run(['which', 'llama-cli'],
-                                    capture_output=True, text=True)
-            if result.returncode == 0:
-                self.config["llama_cli_path"] = result.stdout.strip()
+            r = subprocess.run(['which','llama-cli'], capture_output=True, text=True)
+            if r.returncode == 0: self.config["llama_cli_path"] = r.stdout.strip()
             else:
-                print(f"错误: llama-cli 未找到: {llama_cli}")
+                print(f"错误: llama-cli 未找到")
                 print("请运行 ./install.sh 编译 llama.cpp")
                 return False
-
-        # 快速验证模型可加载
         print("正在验证模型...")
-        result = subprocess.run(
-            [self.config["llama_cli_path"], '-m', model_path,
-             '-p', 'hello', '-n', '1', '-c', '64',
-             '--no-display-prompt'],
-            capture_output=True, text=True, timeout=30,
-            cwd=SCRIPT_DIR
-        )
-        if result.returncode != 0:
-            print(f"错误: 模型加载失败:\n{result.stderr}")
+        r = subprocess.run(
+            [self.config["llama_cli_path"],'-m',model_path,'-p','hello','-n','1','-c','64',
+             '--no-display-prompt','--single-turn','--simple-io'],
+            capture_output=True, text=True, timeout=120, cwd=SCRIPT_DIR)
+        if r.returncode != 0:
+            print(f"错误: 模型加载失败:\n{r.stderr}")
             return False
-
         self.llama_ready = True
         print("模型就绪")
         return True
-
     def get_prompt(self, text, source_lang="auto", target_lang=None):
-        """生成翻译提示词"""
-        if target_lang is None:
-            target_lang = self.target_lang
-
+        if target_lang is None: target_lang = self.target_lang
         target_lang_name = LANGUAGES.get(target_lang, target_lang)
-        is_chinese_source = any('\u4e00' <= c <= '\u9fff' for c in text)
-
-        if is_chinese_source:
-            if target_lang_name == "Chinese":
-                target_lang_name = "English"
-            prompt = f"将以下文本翻译为{target_lang_name}，注意只需要输出翻译后的结果，不要额外解释：\n\n{text}"
+        is_cn = any('\u4e00'<=c<='\u9fff' for c in text)
+        if is_cn:
+            if target_lang_name == "Chinese": target_lang_name = "English"
+            return f"将以下文本翻译为{target_lang_name}，注意只需要输出翻译后的结果，不要额外解释：\n\n{text}"
         else:
             if target_lang_name == "Chinese":
-                prompt = f"将以下文本翻译为中文，注意只需要输出翻译后的结果，不要额外解释：\n\n{text}"
-            else:
-                prompt = f"Translate the following segment into {target_lang_name}, without additional explanation.\n\n{text}"
-
-        return prompt
-
+                return f"将以下文本翻译为中文，注意只需要输出翻译后的结果，不要额外解释：\n\n{text}"
+            return f"Translate the following segment into {target_lang_name}, without additional explanation.\n\n{text}"
     def translate(self, text, source_lang="auto", target_lang=None):
-        """执行翻译"""
-        if not self.llama_ready:
-            return "错误: 模型未就绪"
-
-        if not text.strip():
-            return ""
-
+        if not self.llama_ready: return "错误: 模型未就绪"
+        if not text.strip(): return ""
         prompt = self.get_prompt(text, source_lang, target_lang)
         model_path = self.resolve_path(self.config["model_path"])
-
         try:
-            result = subprocess.run(
-                [
-                    self.config["llama_cli_path"],
-                    '-m', model_path,
-                    '-p', prompt,
-                    '-n', str(self.config["max_tokens"]),
-                    '--temp', str(self.config["temperature"]),
-                    '-t', str(self.config["n_threads"]),
-                    '-c', str(self.config["n_ctx"]),
-                    '--top-k', str(self.config["top_k"]),
-                    '--top-p', str(self.config["top_p"]),
-                    '--repeat-penalty', str(self.config["repetition_penalty"]),
-                    '--no-display-prompt',
-                ],
-                capture_output=True, text=True,
-                timeout=120,
-                cwd=SCRIPT_DIR
-            )
-
-            if result.returncode != 0:
-                return f"翻译错误: {result.stderr.strip()}"
-
-            translation = result.stdout.strip()
-
-            # 清理停止标记
-            for stop in STOP_TOKENS:
-                translation = translation.replace(stop, "")
-
-            return translation.strip()
-
-        except subprocess.TimeoutExpired:
-            return "翻译超时"
-        except Exception as e:
-            return f"翻译错误: {e}"
-
+            r = subprocess.run(
+                [self.config["llama_cli_path"],'-m',model_path,'-p',prompt,
+                 '-n',str(self.config["max_tokens"]),'--temp',str(self.config["temperature"]),
+                 '-t',str(self.config["n_threads"]),'-c',str(self.config["n_ctx"]),
+                 '--top-k',str(self.config["top_k"]),'--top-p',str(self.config["top_p"]),
+                 '--repeat-penalty',str(self.config["repetition_penalty"]),
+                 '--no-display-prompt','--single-turn','--simple-io'],
+                capture_output=True, text=True, timeout=120, cwd=SCRIPT_DIR)
+            if r.returncode != 0: return f"翻译错误: {r.stderr.strip()}"
+            out = r.stdout.strip()
+            result_lines = []
+            for line in reversed(out.split('\n')):
+                if line.startswith('[ Prompt:') or line.startswith('Exiting'): break
+                s = line.strip()
+                if s and not s.startswith('>') and not s.startswith('build') and not s.startswith('model') and not s.startswith('modalities') and not s.startswith('available') and not s.startswith('/') and not s.startswith('Loading'):
+                    result_lines.insert(0, s)
+            for stop in STOP_TOKENS: out = '\n'.join(result_lines).replace(stop, "")
+            return out.strip()
+        except subprocess.TimeoutExpired: return "翻译超时"
+        except Exception as e: return f"翻译错误: {e}"
     def get_clipboard(self):
-        """获取剪贴板内容"""
         try:
-            result = subprocess.run(
-                ['xclip', '-selection', 'clipboard', '-o'],
-                capture_output=True, text=True, timeout=1
-            )
-            return result.stdout
-        except:
-            return ""
-
+            r = subprocess.run(['xclip','-selection','clipboard','-o'], capture_output=True, text=True, timeout=1)
+            return r.stdout
+        except: return ""
     def monitor_clipboard(self):
-        """监控剪贴板变化"""
-        print("开始监控剪贴板...")
-        print("复制文本后将自动翻译")
-        print("按 Ctrl+C 退出")
-
+        print("开始监控剪贴板...\n复制文本后将自动翻译\n按 Ctrl+C 退出")
         while True:
             try:
-                current = self.get_clipboard()
-                if current and current != self.last_clipboard:
-                    self.last_clipboard = current
-                    print(f"\n原文: {current}")
-                    translation = self.translate(current)
-                    print(f"译文: {translation}")
+                cur = self.get_clipboard()
+                if cur and cur != self.last_clipboard:
+                    self.last_clipboard = cur
+                    print(f"\n原文: {cur}")
+                    print(f"译文: {self.translate(cur)}")
                 time.sleep(self.config["clipboard_poll_interval"])
             except KeyboardInterrupt:
-                print("\n停止监控")
-                break
-
+                print("\n停止监控"); break
     def interactive_mode(self):
-        """交互模式"""
         print("\n=== Qubes Translation Qube ===")
-        print("输入文本进行翻译，输入 /help 查看帮助")
-        print("输入 /quit 退出\n")
-
+        print("输入文本进行翻译，/help 查看帮助，/quit 退出\n")
         while True:
             try:
                 text = input("> ").strip()
-                if not text:
-                    continue
-                if text.startswith('/'):
-                    self.handle_command(text)
-                    continue
-                translation = self.translate(text)
-                print(translation)
-            except KeyboardInterrupt:
-                print("\n再见！")
-                break
-            except EOFError:
-                print("\n再见！")
-                break
-
+                if not text: continue
+                if text.startswith('/'): self.handle_command(text); continue
+                print(self.translate(text))
+            except (KeyboardInterrupt, EOFError): print("\n再见！"); break
     def handle_command(self, command):
-        """处理命令"""
         cmd = command.lower().split()
-
-        if cmd[0] in ('/quit', '/exit'):
-            print("再见！")
-            sys.exit(0)
-
+        if cmd[0] in ('/quit','/exit'): print("再见！"); sys.exit(0)
         elif cmd[0] == '/help':
-            print("\n可用命令:")
-            print("  /lang <src> <tgt>  - 设置语言方向 (如 /lang zh en)")
-            print("  /languages         - 显示支持的语言")
-            print("  /clipboard         - 开始剪贴板监控")
-            print("  /config            - 显示当前配置")
-            print("  /help              - 显示帮助")
-            print("  /quit              - 退出\n")
-
+            print("\n  /lang <src> <tgt> - 设置语言方向\n  /languages - 支持的语言\n  /clipboard - 剪贴板监控\n  /config - 当前配置\n  /quit - 退出\n")
         elif cmd[0] == '/languages':
-            print("\n支持的语言:")
-            for code, name in sorted(LANGUAGES.items()):
-                print(f"  {code:8} - {name}")
-            print()
-
+            for c,n in sorted(LANGUAGES.items()): print(f"  {c:8} - {n}")
         elif cmd[0] == '/lang':
-            if len(cmd) == 3:
-                src, tgt = cmd[1], cmd[2]
-                if src in LANGUAGES and tgt in LANGUAGES:
-                    self.source_lang = src
-                    self.target_lang = LANGUAGES[tgt]
-                    print(f"语言设置: {LANGUAGES[src]} -> {LANGUAGES[tgt]}")
-                else:
-                    print("错误: 不支持的语言代码")
-            else:
-                print("用法: /lang <源语言代码> <目标语言代码>")
-
-        elif cmd[0] == '/clipboard':
-            self.monitor_clipboard()
-
+            if len(cmd)==3 and cmd[1] in LANGUAGES and cmd[2] in LANGUAGES:
+                self.source_lang=cmd[1]; self.target_lang=LANGUAGES[cmd[2]]
+                print(f"语言: {LANGUAGES[cmd[1]]} -> {LANGUAGES[cmd[2]]}")
+            else: print("用法: /lang <源> <目标>")
+        elif cmd[0] == '/clipboard': self.monitor_clipboard()
         elif cmd[0] == '/config':
-            print("\n当前配置:")
-            for key, value in self.config.items():
-                print(f"  {key}: {value}")
-            print(f"  源语言: {self.source_lang}")
-            print(f"  目标语言: {self.target_lang}")
-            print()
-
-        else:
-            print(f"未知命令: {cmd[0]}")
-
+            for k,v in self.config.items(): print(f"  {k}: {v}")
+        else: print(f"未知命令: {cmd[0]}")
 
 def main():
     import argparse
+    p = argparse.ArgumentParser(description='Qubes Translation Qube')
+    p.add_argument('--clipboard','-c',action='store_true',help='剪贴板监控')
+    p.add_argument('--config',default='config.json',help='配置文件路径')
+    p.add_argument('--source-lang','-s',default=None,help='源语言')
+    p.add_argument('--target-lang','-t',default=None,help='目标语言')
+    p.add_argument('--text',default=None,help='翻译文本')
+    a = p.parse_args()
+    s = TranslationService(a.config)
+    if not s.load_model(): sys.exit(1)
+    if a.source_lang: s.source_lang = a.source_lang
+    if a.target_lang: s.target_lang = LANGUAGES.get(a.target_lang, a.target_lang)
+    if a.text: print(s.translate(a.text)); return
+    if a.clipboard: s.monitor_clipboard(); return
+    s.interactive_mode()
 
-    parser = argparse.ArgumentParser(description='Qubes Translation Qube')
-    parser.add_argument('--clipboard', '-c', action='store_true',
-                        help='启动剪贴板监控模式')
-    parser.add_argument('--config', default='config.json',
-                        help='配置文件路径')
-    parser.add_argument('--source-lang', '-s', default=None,
-                        help='源语言代码')
-    parser.add_argument('--target-lang', '-t', default=None,
-                        help='目标语言代码')
-    parser.add_argument('--text', default=None,
-                        help='要翻译的文本')
-
-    args = parser.parse_args()
-
-    service = TranslationService(args.config)
-
-    if not service.load_model():
-        sys.exit(1)
-
-    if args.source_lang:
-        service.source_lang = args.source_lang
-    if args.target_lang:
-        service.target_lang = LANGUAGES.get(args.target_lang, args.target_lang)
-
-    if args.text:
-        translation = service.translate(args.text)
-        print(translation)
-        return
-
-    if args.clipboard:
-        service.monitor_clipboard()
-        return
-
-    service.interactive_mode()
-
-
-if __name__ == "__main__":
-    main()
+if __name__=="__main__": main()
 PYEOF
-
-    chmod +x "$SCRIPT_DIR/translate.py"
-    info "翻译脚本创建完成"
 }
 
 # ── 创建配置文件 ───────────────────────────────────
@@ -483,18 +337,18 @@ create_config() {
 
     cat > "$SCRIPT_DIR/config.json" << 'JSONEOF'
 {
-  "model_path": "models/Hy-MT1.5-1.8B-1.25bit.gguf",
+  "model_path": "models/Hy-MT1.5-1.8B-Q4_K_M.gguf",
   "llama_cli_path": "./llama-cli",
   "default_source_lang": "auto",
   "default_target_lang": "English",
   "clipboard_poll_interval": 0.5,
-  "max_tokens": 512,
+  "max_tokens": 256,
   "temperature": 0.7,
   "top_k": 20,
   "top_p": 0.6,
   "repetition_penalty": 1.05,
-  "n_threads": 4,
-  "n_ctx": 2048
+  "n_threads": 2,
+  "n_ctx": 512
 }
 JSONEOF
 

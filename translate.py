@@ -99,8 +99,9 @@ class TranslationService:
         result = subprocess.run(
             [self.config["llama_cli_path"], '-m', model_path,
              '-p', 'hello', '-n', '1', '-c', '64',
-             '--no-display-prompt'],
-            capture_output=True, text=True, timeout=30,
+             '--no-display-prompt', '--single-turn',
+             '--simple-io'],
+            capture_output=True, text=True, timeout=120,
             cwd=SCRIPT_DIR
         )
         if result.returncode != 0:
@@ -156,6 +157,8 @@ class TranslationService:
                     '--top-p', str(self.config["top_p"]),
                     '--repeat-penalty', str(self.config["repetition_penalty"]),
                     '--no-display-prompt',
+                    '--single-turn',
+                    '--simple-io',
                 ],
                 capture_output=True, text=True,
                 timeout=120,
@@ -166,6 +169,20 @@ class TranslationService:
                 return f"翻译错误: {result.stderr.strip()}"
 
             translation = result.stdout.strip()
+
+            # 提取实际的翻译文本（跳过 llama-cli banner 和 prompt 回显）
+            # 查找 "Exiting..." 之前的最后一段有意义文本
+            lines = translation.split('\n')
+            # 从后往前找，跳过空行和统计行
+            result_lines = []
+            for line in reversed(lines):
+                if line.startswith('[ Prompt:') or line.startswith('Exiting'):
+                    break
+                stripped = line.strip()
+                if stripped and not stripped.startswith('>') and not stripped.startswith('build') and not stripped.startswith('model') and not stripped.startswith('modalities') and not stripped.startswith('available') and not stripped.startswith('/') and not stripped.startswith('Loading'):
+                    result_lines.insert(0, stripped)
+            
+            translation = '\n'.join(result_lines)
 
             # 清理停止标记
             for stop in STOP_TOKENS:
