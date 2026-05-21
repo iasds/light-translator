@@ -129,6 +129,11 @@ qvm-start translation
 - [腾讯混元 HY-MT](https://github.com/Tencent-Hunyuan/HY-MT) - 翻译模型
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) - 推理引擎
 
+
+## 社区
+
+[Qubes OS 中文社区](https://t.me/qubeszh) — Telegram 群组，欢迎加入交流。
+
 ## 许可证
 
 MIT。模型使用请遵循 [HY-MT 许可](https://huggingface.co/tencent/HY-MT1.5-1.8B)。
