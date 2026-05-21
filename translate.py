@@ -171,17 +171,24 @@ class TranslationService:
             translation = result.stdout.strip()
 
             # 提取实际的翻译文本（跳过 llama-cli banner 和 prompt 回显）
-            # 查找 "Exiting..." 之前的最后一段有意义文本
             lines = translation.split('\n')
-            # 从后往前找，跳过空行和统计行
             result_lines = []
             for line in reversed(lines):
-                if line.startswith('[ Prompt:') or line.startswith('Exiting'):
-                    break
                 stripped = line.strip()
-                if stripped and not stripped.startswith('>') and not stripped.startswith('build') and not stripped.startswith('model') and not stripped.startswith('modalities') and not stripped.startswith('available') and not stripped.startswith('/') and not stripped.startswith('Loading'):
+                # 跳过统计行（但不 break，继续往前找译文）
+                if stripped.startswith('[ Prompt:') or stripped.startswith('[ ') or stripped.startswith('Prompt:'):
+                    continue
+                if stripped.startswith('Exiting') or stripped.startswith('build ') or stripped.startswith('model '):
+                    continue
+                if stripped.startswith('modalities') or stripped.startswith('available') or stripped.startswith('Loading'):
+                    continue
+                if stripped.startswith('> ') or stripped.startswith('/'):
+                    continue
+                # 跳过纯装饰行（banner 方框线、进度条等）
+                if stripped and not any(c.isalnum() for c in stripped):
+                    continue
+                if stripped:
                     result_lines.insert(0, stripped)
-            
             translation = '\n'.join(result_lines)
 
             # 清理停止标记
