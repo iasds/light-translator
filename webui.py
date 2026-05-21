@@ -44,20 +44,20 @@ button:disabled{opacity:.4;cursor:not-allowed}
   <select id="tgt"></select>
 </div>
 <textarea id="input" placeholder="输入文本...&#10;支持中文、英文、日文等 33 种语言" autofocus></textarea>
-<button id="btn" onclick="translate()">翻译</button>
+<button id="btn" onclick="doTranslate()">翻译</button>
 <textarea id="output" readonly placeholder="翻译结果..."></textarea>
 <div class="status" id="status">就绪</div>
 </main>
 <script>
 const LANG={{LANG_JSON}};
-const sel=(id)=>document.getElementById(id);
+const sel=id=>document.getElementById(id);
 function buildOpts(){
   const o=Object.entries(LANG).map(([k,v])=>`<option value="${k}">${v}</option>`).join('');
   sel('src').innerHTML='<option value="auto">自动检测</option>'+o;
   sel('tgt').innerHTML=o;
   sel('tgt').value='en';
 }
-async function translate(){
+async function doTranslate(){
   const btn=sel('btn'),st=sel('status'),input=sel('input').value.trim();
   if(!input)return;
   btn.disabled=true;st.textContent='翻译中...';
@@ -66,13 +66,14 @@ async function translate(){
       method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify({text:input,source:sel('src').value,target:sel('tgt').value})
     });
+    if(!r.ok)throw new Error(r.status);
     const d=await r.json();
-    sel('output').value=d.translation||d.error||'';
-    st.textContent=d.time?`${(d.time/1000).toFixed(1)}s`:d.error||'完成';
-  }catch(e){st.textContent='网络错误'}
+    sel('output').value=d.translation||'';
+    st.textContent=d.time?`${(d.time/1000).toFixed(1)}s`:'完成';
+  }catch(e){st.textContent='错误: '+e.message}
   btn.disabled=false;
 }
-sel('input').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.ctrlKey)translate()});
+sel('input').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.ctrlKey)doTranslate()});
 buildOpts();
 </script>
 </body>
